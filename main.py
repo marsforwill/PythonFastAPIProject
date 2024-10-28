@@ -1,8 +1,12 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from typing import List, Optional
 import requests
 import json
 from datetime import datetime
+from pydantic import BaseModel
+from typing import Dict
+import string
+import random
 
 app = FastAPI()
 
@@ -77,6 +81,47 @@ async def get_announcements(date: str = Query(..., description="查询公告的�
         ]
     else:
         return {"message": "未找到该日期的公告"}
+
+# 数据库存储 (可以改成持久化数据库，如SQL或NoSQL)
+url_db: Dict[str, str] = {}
+reverse_url_db: Dict[str, str] = {}
+
+# 基础URL，用于生成短链接
+BASE_URL = "http://short.ly/"
+
+
+# 生成唯一的短链接标识符
+def generate_short_id(length=6) -> str:
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+
+@app.get("/shorten")
+async def shorten_url(url: str = Query(..., description="长链接")):
+    # 检查URL是否已存在
+    if url in reverse_url_db:
+        short_id = reverse_url_db[url]
+    else:
+        # 生成新的短链接ID并存储
+        short_id = generate_short_id()
+        while short_id in url_db:
+            short_id = generate_short_id()
+        url_db[short_id] = url
+        reverse_url_db[url] = short_id
+
+    short_url = BASE_URL + short_id
+    return {"short_url": short_url}
+
+@app.get("/expand")
+async def expand_url(short_url: str = Query(..., description="短链接")):
+    # 去除基础URL部分，获取短链接ID
+    short_id = short_url.replace(BASE_URL, "")
+    
+    # 查找原始URL
+    long_url = url_db.get(short_id)
+    if long_url is None:
+        raise HTTPException(status_code=404, detail="Short URL not found")
+    
+    return {"long_url": long_url}
+
 
 # 启动应用时的代码入口
 if __name__ == "__main__":
